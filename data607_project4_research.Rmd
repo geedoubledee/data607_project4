@@ -50,13 +50,16 @@ if (length(completed) == 0){
                 content <- txt[start:end, 1]
                 title <- content[1]
                 lines <- content[2:length(content)]
+                #we want to preserve meaningful line breaks throughout the text
+                #but eliminate leading or tailing sequences of them; process follows
                 non_empty <- lines != ""
-                x <- which.max(non_empty)
-                lines <- lines[x:length(lines)]
-                rev_lines <- rev(lines)
-                y <- which.max(rev(non_empty))
-                rev_lines <- rev_lines[y:length(rev_lines)]
-                lines <- rev(rev_lines)
+                #find index of first TRUE in vector of whether lines are not empty
+                x <- which.max(non_empty) 
+                lines <- lines[x:length(lines)] #trim empty lines from front only
+                rev_lines <- rev(lines) #reverse lines so we can trim from back
+                y <- which.max(rev(non_empty)) 
+                rev_lines <- rev_lines[y:length(rev_lines)] #trim from back
+                lines <- rev(rev_lines) #put lines back in proper order
                 addition <- cbind(category, collection, author, title, lines)
                 txt_df <- rbind(txt_df, addition)
                 end <- i - 1
@@ -78,8 +81,14 @@ if (length(completed) == 0){
     txt_pivot <- read.csv(my_url2)
 }
 
+```
 
-
+```{r set_seed}
+set.seed(6001)
+txt_shuffle <- txt_pivot
+shuffle <- sample(1:nrow(txt_shuffle))
+txt_shuffle <- txt_shuffle[shuffle, ]
+txt_shuffle$category <- ifelse(txt_shuffle$category == "SS", 1, 0)
 
 ```
 
