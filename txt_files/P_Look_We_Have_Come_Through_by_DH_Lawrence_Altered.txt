@@ -466,10 +466,8 @@ We are the source.
 
   BEUERBERG
 
-
-_"AND OH--
-  THAT THE MAN I AM
-  MIGHT CEASE TO BE--"_
++
+_"AND OH--THAT THE MAN I AM MIGHT CEASE TO BE--"_
 
 No, now I wish the sunshine would stop,
 and the white shining houses, and the gay red
@@ -1022,8 +1020,7 @@ Mellow as the glory roses.
  ICKING
 
 +
-_ROSES ON THE BREAKFAST
-TABLE_
+_ROSES ON THE BREAKFAST TABLE_
 
 JUST a few of the roses we gathered from the Isar
 Are fallen, and their mauve-red petals on the
@@ -1232,8 +1229,7 @@ Does not my fear cover her fear?
  IRSCHENHAUSEN
 
 +
-_SONG OF A MAN WHO IS
-NOT LOVED_
+_SONG OF A MAN WHO IS NOT LOVED_
 
 THE space of the world is immense, before me and
    around me;
@@ -1325,8 +1321,7 @@ What are so many straight trees to me!
  STERZING
 
 +
-_SUNDAY AFTERNOON IN
-ITALY_
+_SUNDAY AFTERNOON IN ITALY_
 
 THE man and the maid go side by side
 With an interval of space between;
@@ -2194,8 +2189,7 @@ Till at length they mate.
  THE CEARNE
 
 +
-_SONG OF A MAN WHO HAS
-COME THROUGH_
+_SONG OF A MAN WHO HAS COME THROUGH_
 
 NOT I, not I, but the wind that blows through me!
 A fine wind is blowing the new direction of Time.

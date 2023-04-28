@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r packages, warning=FALSE, message=FALSE}
 library(tidyverse)
+library(tidytext)
 
 ```
 
@@ -22,8 +23,8 @@ library(tidyverse)
 completed <- readLines("completed.txt") 
 if (length(completed) == 0){
     files <- list.files(pattern = "^P_.+\\.txt$|^SS_.+\\.txt$")
-    txt_df <- as.data.frame(matrix(nrow = 0, ncol = 5))
-    cols <- c("category", "collection", "author", "title", "lines")
+    txt_df <- as.data.frame(matrix(nrow = 0, ncol = 6))
+    cols <- c("category", "collection", "author", "title", "author_title", "lines")
     colnames(txt_df) <- cols
     for (i in 1:length(files)){
         extraction <- str_replace_all(files[i], "_", " ")
@@ -49,6 +50,7 @@ if (length(completed) == 0){
                 start <- i + 1
                 content <- txt[start:end, 1]
                 title <- content[1]
+                author_title <- paste(author, title, sep = "_")
                 lines <- content[2:length(content)]
                 #we want to preserve meaningful line breaks throughout the text
                 #but eliminate leading or tailing sequences of them; process follows
@@ -60,7 +62,8 @@ if (length(completed) == 0){
                 y <- which.max(rev(non_empty)) 
                 rev_lines <- rev_lines[y:length(rev_lines)] #trim from back
                 lines <- rev(rev_lines) #put lines back in proper order
-                addition <- cbind(category, collection, author, title, lines)
+                addition <- cbind(category, collection, author, title,
+                                  author_title, lines)
                 txt_df <- rbind(txt_df, addition)
                 end <- i - 1
             }else{
@@ -68,9 +71,9 @@ if (length(completed) == 0){
             }
         }
     }
-    txt_df$line_num <- ave(txt_df$lines, txt_df$title, FUN = seq_along)
+    txt_df$line_num <- as.integer(ave(txt_df$lines, txt_df$author_title, FUN = seq_along))
     txt_pivot <- txt_df %>%
-    pivot_wider(names_from = line_num, names_prefix = "line_" ,
+        pivot_wider(names_from = line_num, names_prefix = "line_" ,
                 values_from = lines)
     write.csv(txt_df, file = "txt_df.csv", row.names = FALSE)
     write.csv(txt_pivot, file = "txt_pivot.csv", row.names = FALSE)
@@ -89,6 +92,43 @@ txt_shuffle <- txt_pivot
 shuffle <- sample(1:nrow(txt_shuffle))
 txt_shuffle <- txt_shuffle[shuffle, ]
 txt_shuffle$category <- ifelse(txt_shuffle$category == "SS", 1, 0)
+remove <- c("collection", "author", "title")
+txt_shuffle <- txt_shuffle[, !colnames(txt_shuffle) %in% remove]
+txt_punct <- txt_shuffle
+txt_punct[txt_punct == ""] <- NA
+txt_punct <- txt_punct %>%
+    mutate(across(starts_with("line_"), \(x) str_count(x, "[[:punct:]]"))) %>%
+    mutate(total_punct = rowSums(select(., starts_with("line_")), na.rm = TRUE)) %>%
+    mutate(total_non_empty_lines = rowSums(!is.na(select(.,
+                                                         starts_with("line_"))))) %>%
+    select(!starts_with("line_"))
+txt_words <- txt_df
+remove <- c("category", "collection", "author", "title")
+txt_lines <- txt_words[, !colnames(txt_words) %in% remove]
+txt_lines <- txt_lines %>%
+    group_by(author_title) %>%
+    summarize(total_lines = max(line_num))
+txt_words <- txt_words[, !colnames(txt_words) %in% remove]
+txt_words <- txt_words %>%
+    unnest_tokens(word, lines)
+txt_summary <- txt_words %>%
+    group_by(author_title) %>%
+    summarize(word_count = n()) %>%
+    left_join(txt_lines, by = join_by(author_title)) %>%
+    left_join(txt_punct, by = join_by(author_title))
+txt_summary$total_lines <- as.integer(txt_summary$total_lines)
+txt_summary <- txt_summary %>%
+    mutate(punct_word_ratio = total_punct / word_count) %>%
+    mutate(breaks = total_lines - total_non_empty_lines) %>%
+    mutate(break_line_ratio = breaks / total_lines)
+
+```
+
+```{r punct_word_plot}
+txt_summary$category <- as.factor(txt_summary$category)
+ggplot(txt_summary, aes(x = word_count / total_non_empty_lines, fill = category,
+                        color = category, alpha = 0.5)) + 
+    geom_histogram(position = "identity")
 
 ```
 
