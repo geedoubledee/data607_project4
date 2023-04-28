@@ -124,9 +124,17 @@ txt_summary <- txt_summary %>%
 
 ```
 
-```{r punct_word_plot}
+```{r punct_words_per_line_plot}
 txt_summary$category <- as.factor(txt_summary$category)
 ggplot(txt_summary, aes(x = word_count / total_non_empty_lines, fill = category,
+                        color = category, alpha = 0.5)) + 
+    geom_histogram(position = "identity")
+
+```
+
+```{r punct_punct_per_line_plot}
+txt_summary$category <- as.factor(txt_summary$category)
+ggplot(txt_summary, aes(x = total_punct / total_non_empty_lines, fill = category,
                         color = category, alpha = 0.5)) + 
     geom_histogram(position = "identity")
 
