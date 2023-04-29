@@ -101,12 +101,20 @@ colnames(bing) <- cols
 
 ```{r set_seed}
 set.seed(6001)
+
+```
+
+```{r shuffle_the_data}
 txt_shuffle <- txt_pivot
 shuffle <- sample(1:nrow(txt_shuffle))
 txt_shuffle <- txt_shuffle[shuffle, ]
 txt_shuffle$category <- ifelse(txt_shuffle$category == "SS", 1, 0)
 remove <- c("collection", "author", "title")
 txt_shuffle <- txt_shuffle[, !colnames(txt_shuffle) %in% remove]
+
+```
+
+```{r count_punctuation}
 txt_punct <- txt_shuffle
 txt_punct[txt_punct == ""] <- NA
 txt_punct <- txt_punct %>%
@@ -115,6 +123,10 @@ txt_punct <- txt_punct %>%
     mutate(total_non_empty_lines = rowSums(!is.na(select(.,
                                                          starts_with("line_"))))) %>%
     select(!starts_with("line_"))
+
+```
+
+```{r count_words}
 txt_words <- txt_df
 remove <- c("category", "collection", "author", "title")
 txt_lines <- txt_words[, !colnames(txt_words) %in% remove]
@@ -124,6 +136,10 @@ txt_lines <- txt_lines %>%
 txt_words <- txt_words[, !colnames(txt_words) %in% remove]
 txt_words <- txt_words %>%
     unnest_tokens(word, lines)
+
+```
+
+```{r analyze_sentiments}
 txt_sentiments <- txt_words %>%
     left_join(nrc, by = join_by(word), multiple = "all") %>%
     left_join(bing, by = join_by(word), multiple = "all") %>%
@@ -162,6 +178,77 @@ polarity_totals <- txt_polarity %>%
     mutate(percent_neg = negative / polarity_total,
            percent_pos = positive / polarity_total)
 polarity_totals[is.na(polarity_totals)] <- 0
+
+```
+
+```{r count_lines_that_rhyme_w_1_prev_or_2_prev}
+my_url3 <- "https://raw.githubusercontent.com/geedoubledee/data607_project4/main/cmudict_0_7b.txt"
+cmudict <- readLines(my_url3)
+cmudict <- as.data.frame(cmudict[-c(1:56)])
+colnames(cmudict) <- "word"
+cmudict <- cmudict %>%
+    separate_wider_delim(cols = word, delim = "  ", names_sep = "_",
+                         too_few = "align_start")
+colnames(cmudict) <- c("word", "pronunciation")
+cmudict$word <- str_to_lower(str_replace_all(cmudict$word, "[[:punct:]]", ""))
+cmudict$start_index <- sapply(gregexpr("[A-Z]{2}1", cmudict$pronunciation),
+                                      function(x) rev(x)[1])
+cmudict <- cmudict %>%
+    mutate(rhyming_phoneme = substr(.$pronunciation, start_index, 1000000L))
+txt_words$author_title_line_num <- paste(txt_words$author_title,
+                                         txt_words$line_num, sep = "_")
+txt_words$word_num <- as.integer(ave(txt_words$word, txt_words$author_title_line_num,
+                                     FUN = seq_along))
+remove <- "author_title_line_num"
+txt_words <- txt_words[, !colnames(txt_words) %in% remove]
+
+if (!"txt_rhymes.csv" %in% completed){
+    txt_rhymes <- txt_words %>%
+        group_by(author_title, line_num) %>%
+        top_n(1, word_num) %>%
+        left_join(cmudict, by = join_by(word), multiple = "first") %>%
+        mutate(rhymes_1_line_prev = 0, rhymes_2_line_prev = 0)
+    remove <- c("pronunciation", "start_index")
+    txt_rhymes <- txt_rhymes[, !colnames(txt_rhymes) %in% remove]
+    for (i in 2:nrow(txt_rhymes)){
+        if (is.na(txt_rhymes[i, 5]) | 
+            is.na(txt_rhymes[(i-1), 5]) | 
+            txt_rhymes[i, 5] != txt_rhymes[(i-1), 5]){
+            next
+        }else{
+            if (txt_rhymes[i, 1] != txt_rhymes[(i-1), 1]){
+                next
+            }else{
+                txt_rhymes[i, 6] <- 1
+            }
+        }
+    }
+    for (i in 3:nrow(txt_rhymes)){
+        if (is.na(txt_rhymes[i, 5]) | 
+            is.na(txt_rhymes[(i-2), 5]) | 
+            txt_rhymes[i, 5] != txt_rhymes[(i-2), 5]){
+            next
+        }else{
+            if (txt_rhymes[i, 1] != txt_rhymes[(i-2), 1]){
+                next
+            }else{
+                txt_rhymes[i, 7] <- 1
+            }
+        }
+    }
+    write.csv(txt_rhymes, "txt_rhymes.csv", row.names = FALSE)
+}else{
+    my_url4 <- "https://raw.githubusercontent.com/geedoubledee/data607_project4/main/txt_rhymes.csv"
+    txt_rhymes <- read.csv(my_url4)
+}
+
+
+
+
+
+```
+
+```{r create_numeric_summary}
 txt_summary <- txt_words %>%
     group_by(author_title) %>%
     summarize(word_count = n()) %>%
@@ -178,6 +265,8 @@ txt_summary <- txt_summary %>%
     mutate(punct_per_non_empty_lines = total_punct / total_non_empty_lines)
 
 ```
+
+
 
 ```{r train_test_dataset}
 #process adapted from https://www.guru99.com/r-decision-trees.html
