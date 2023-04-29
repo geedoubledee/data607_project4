@@ -241,10 +241,9 @@ if (!"txt_rhymes.csv" %in% completed){
     my_url4 <- "https://raw.githubusercontent.com/geedoubledee/data607_project4/main/txt_rhymes.csv"
     txt_rhymes <- read.csv(my_url4)
 }
-
-
-
-
+rhymes_summary <- txt_rhymes %>%
+    group_by(author_title) %>%
+    summarize(rhyming_score = max(sum(rhymes_1_line_prev), sum(rhymes_2_line_prev)))
 
 ```
 
@@ -255,20 +254,20 @@ txt_summary <- txt_words %>%
     left_join(txt_lines, by = join_by(author_title)) %>%
     left_join(txt_punct, by = join_by(author_title)) %>%
     left_join(emotion_totals, by = join_by(author_title)) %>%
-    left_join(polarity_totals, by = join_by(author_title))
+    left_join(polarity_totals, by = join_by(author_title)) %>%
+    left_join(rhymes_summary, by = join_by(author_title))
 txt_summary$total_lines <- as.integer(txt_summary$total_lines)
 remove <- c("emotion_total", "polarity_total", "anger", "anticipation", "disgust",
             "fear", "joy", "sadness", "surprise", "trust", "positive", "negative")
 txt_summary <- txt_summary[, !colnames(txt_summary) %in% remove]
 txt_summary <- txt_summary %>%
     mutate(words_per_non_empty_lines = word_count / total_non_empty_lines) %>%
-    mutate(punct_per_non_empty_lines = total_punct / total_non_empty_lines)
+    mutate(punct_per_non_empty_lines = total_punct / total_non_empty_lines) %>%
+    mutate(rhymes_per_non_empty_lines = rhyming_score / total_non_empty_lines)
 
 ```
 
-
-
-```{r train_test_dataset}
+```{r split_train_test_dataset}
 #process adapted from https://www.guru99.com/r-decision-trees.html
 split_data_into_test_train <- function(data, size = 0.7, train = TRUE){
     n_row <- nrow(data)
@@ -286,7 +285,16 @@ train <- train %>%
 test <- split_data_into_test_train(txt_summary, size = 0.7, train = FALSE)
 test <- test %>%
     column_to_rownames(var="author_title")
-fit <- rpart(category~., data = train, method = 'class')
+fit <- rpart(category~., data = train, method = "class")
 rpart.plot(fit, extra = 106)
+
+```
+
+```{r predict}
+predict_unseen <- predict(fit, test, type = "class")
+table_mat <- table(test$category, predict_unseen)
+table_mat
+accuracy_Test <- sum(diag(table_mat)) / sum(table_mat)
+print(paste('Accuracy for test', accuracy_Test))
 
 ```
