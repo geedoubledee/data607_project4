@@ -9,20 +9,26 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-### Load Required Packages:
+### Load the Required Packages:
+
+Below, we load the packages required for data analysis, predictive document classification, and visualization.
 
 ```{r packages, warning=FALSE, message=FALSE}
+library(knitr)
 library(tidyverse)
 library(tidytext)
 library(textdata)
 library(rpart)
 library(rpart.plot)
+library(DT)
 
 ```
 
-### Load Poetry and Short Story Data:
+### Load the Poetry and Short Story Data:
 
-```{r data}
+We will be predicting whether a text document is a poem or a short story based on some of its features, so we load a number of poetry and short story collections in the public domain that we gathered from [Project Gutenberg](https://www.gutenberg.org/) into a dataframe. We manually added delimiters to the text files to mark the beginning of each unique poem or short story in the collection. We also named the files in such a way as to make extracting metadata like category (P for poetry, SS for short story), collection name, and author name easier. Once we have captured the lines of each text and numbered them sequentially, we pivot the data into a wider format so that each row observation is a single poem or short story, and that row's numbered lines are its columns.
+
+```{r data, warning=FALSE, message=FALSE}
 completed <- readLines("completed.txt") 
 if (length(completed) == 0){
     files <- list.files(pattern = "^P_.+\\.txt$|^SS_.+\\.txt$")
@@ -45,12 +51,12 @@ if (length(completed) == 0){
         }else if (dlim == "="){
             starting_line <- str_detect(txt[, 1], "^=$")
         }
-        for (i in nrow(txt):1){
-            if (i == nrow(txt)){
-                end <- i
+        for (j in nrow(txt):1){
+            if (j == nrow(txt)){
+                end <- j
             }
-            if (starting_line[i]){
-                start <- i + 1
+            if (starting_line[j]){
+                start <- j + 1
                 content <- txt[start:end, 1]
                 title <- content[1]
                 author_title <- paste(author, title, sep = "_")
@@ -68,7 +74,7 @@ if (length(completed) == 0){
                 addition <- cbind(category, collection, author, title,
                                   author_title, lines)
                 txt_df <- rbind(txt_df, addition)
-                end <- i - 1
+                end <- j - 1
             }else{
                 next
             }
@@ -85,9 +91,15 @@ if (length(completed) == 0){
     txt_df <- read.csv(my_url1)
     my_url2 <- "https://raw.githubusercontent.com/geedoubledee/data607_project4/main/txt_pivot.csv"
     txt_pivot <- read.csv(my_url2)
+    show <- c("category", "collection", "author", "title", "line_1")
+    kable(head(txt_pivot[, colnames(txt_pivot) %in% show]), format = "simple")
 }
 
 ```
+
+### Load Sentiment Analysis Lexicons:
+
+We load two sentiment lexicons so that we can analyze both emotional and polarity indicators for the words in each line. Since the **nrc** lexicon includes both emotional (anger, anticipation, disgust, fear, joy, sadness, surprise, and trust) indicators and polarity (negative, positive) indicators, we will prioritize the indicators from the **nrc** lexicon and consider it the primary. We will only use the secondary sentiment lexicon **bing** to fill in polarity indicators for words the primary lexicon hasn't labeled positive or negative.
 
 ```{r sentiments}
 nrc <- get_sentiments("nrc")
@@ -99,10 +111,18 @@ colnames(bing) <- cols
 
 ```
 
+### Set a Seed:
+
+We set a seed so that when we shuffle our data and later create train and test datasets from it, we get the same results each time.
+
 ```{r set_seed}
 set.seed(6001)
 
 ```
+
+### Shuffle the Data:
+
+We shuffle the data so that the poems are no longer sorted next to all the other poems, and the short stories are no longer sorted next to all the other short stories. We also change the P (poetry) vs. SS (short story) category to a numeric variable with 0 indicating P and 1 indicating SS, and we emove some columns we don't need for the numeric analysis we'll be doing later. 
 
 ```{r shuffle_the_data}
 txt_shuffle <- txt_pivot
@@ -111,10 +131,16 @@ txt_shuffle <- txt_shuffle[shuffle, ]
 txt_shuffle$category <- ifelse(txt_shuffle$category == "SS", 1, 0)
 remove <- c("collection", "author", "title")
 txt_shuffle <- txt_shuffle[, !colnames(txt_shuffle) %in% remove]
+show <- c("category", "author_title", "line_1")
+kable(head(txt_shuffle[, colnames(txt_shuffle) %in% show]), format = "simple")
 
 ```
 
-```{r count_punctuation}
+### Create Numeric Variables:
+
+We create numeric variables that will be able to capture some features of our text data. The first numeric variables we create are a count of the punctuation in a text, as well as a count of the non-empty lines in a text, i.e. lines that do not represent intentional breaks separating stanzas or paragraphs within that text.
+
+```{r count_punctuation_and_non_empty_lines}
 txt_punct <- txt_shuffle
 txt_punct[txt_punct == ""] <- NA
 txt_punct <- txt_punct %>%
@@ -123,23 +149,36 @@ txt_punct <- txt_punct %>%
     mutate(total_non_empty_lines = rowSums(!is.na(select(.,
                                                          starts_with("line_"))))) %>%
     select(!starts_with("line_"))
+kable(head(txt_punct), format = "simple")
 
 ```
 
-```{r count_words}
+We also create a count of the total lines in a text, including the previously mentioned intentional breaks.
+
+```{r count_lines}
 txt_words <- txt_df
 remove <- c("category", "collection", "author", "title")
 txt_lines <- txt_words[, !colnames(txt_words) %in% remove]
 txt_lines <- txt_lines %>%
     group_by(author_title) %>%
     summarize(total_lines = max(line_num))
-txt_words <- txt_words[, !colnames(txt_words) %in% remove]
-txt_words <- txt_words %>%
-    unnest_tokens(word, lines)
+kable(head(txt_lines), format = "simple")
 
 ```
 
-```{r analyze_sentiments}
+We then separate the lines into their individual word components. 
+
+```{r unnest_words}
+txt_words <- txt_words[, !colnames(txt_words) %in% remove]
+txt_words <- txt_words %>%
+    unnest_tokens(word, lines)
+kable(head(txt_words), format = "simple")
+
+```
+
+We join the words to the emotional and polarity indicators we previously discussed. Then we create numeric variables that indicate which portion of the labeled words in each text belong to each emotional indicator, as well as which portion of the labeled words in each text belong to each emotional indicator. A text might have only one labeled word, and it might have two labels: joy and positive. That text would get a score of 1 for **percent_joy** and 1 for **percent_pos**, which is not to indicate every word in the text is associated with both joy and positivity, but that every _labeled_ word in the text is. We are not attempting to create a measure that accounts for the many unlabeled words.
+
+```{r analyze_sentiments1, warning=FALSE, message=FALSE}
 txt_sentiments <- txt_words %>%
     left_join(nrc, by = join_by(word), multiple = "all") %>%
     left_join(bing, by = join_by(word), multiple = "all") %>%
@@ -156,15 +195,23 @@ emotion_totals <- txt_emotions %>%
     group_by(author_title) %>%
     summarize(emotion_total = sum(sentiment_count)) %>%
     left_join(emotions_pivot, by = join_by(author_title)) %>%
-    mutate(percent_anger = anger / emotion_total,
-           percent_anticipation = anticipation / emotion_total,
-           percent_disgust = disgust / emotion_total,
-           percent_fear = fear / emotion_total,
-           percent_joy = joy / emotion_total,
-           percent_sadness = sadness / emotion_total,
-           percent_surprise = surprise / emotion_total,
-           percent_trust = trust / emotion_total)
+    mutate(percent_anger = round(anger / emotion_total, 2),
+           percent_anticipation = round(anticipation / emotion_total, 2),
+           percent_disgust = round(disgust / emotion_total, 2),
+           percent_fear = round(fear / emotion_total, 2),
+           percent_joy = round(joy / emotion_total, 2),
+           percent_sadness = round(sadness / emotion_total, 2),
+           percent_surprise = round(surprise / emotion_total, 2),
+           percent_trust = round(trust / emotion_total, 2))
 emotion_totals[is.na(emotion_totals)] <- 0
+show <- c("author_title", "percent_anger", "percent_anticipation",
+          "percent_disgust", "percent_fear", "percent_joy", "percent_sadness",
+          "percent_surprise", "percent_trust")
+kable(head(emotion_totals[, colnames(emotion_totals) %in% show]), format = "simple")
+
+```
+
+```{r analyze_sentiments2, warning=FALSE, message=FALSE}
 txt_polarity <- txt_sentiments %>%
     filter(sentiment %in% c("positive", "negative")) %>%
     group_by(author_title, sentiment) %>%
@@ -175,11 +222,15 @@ polarity_totals <- txt_polarity %>%
     group_by(author_title) %>%
     summarize(polarity_total = sum(sentiment_count)) %>%
     left_join(polarity_pivot, by = join_by(author_title)) %>%
-    mutate(percent_neg = negative / polarity_total,
-           percent_pos = positive / polarity_total)
+    mutate(percent_neg = round(negative / polarity_total, 2),
+           percent_pos = round(positive / polarity_total, 2))
 polarity_totals[is.na(polarity_totals)] <- 0
+show <- show <- c("author_title", "percent_pos", "percent_neg")
+kable(head(polarity_totals[, colnames(polarity_totals) %in% show]), format = "simple")
 
 ```
+
+We load a pronunciation dictionary so that we can analyze the last words in each line and check whether they rhyme with either the last word of the previous line or the last word of the line before that. Poems might feature either of these rhyming structures, or none at all, but it's unlikely that the same poem would feature both, so we give each text a rhyming score based on the larger of its count of lines that rhyme with the previous line and its count of lines that rhyme with the line two lines prior. 
 
 ```{r count_lines_that_rhyme_w_1_prev_or_2_prev}
 my_url3 <- "https://raw.githubusercontent.com/geedoubledee/data607_project4/main/cmudict_0_7b.txt"
@@ -201,7 +252,6 @@ txt_words$word_num <- as.integer(ave(txt_words$word, txt_words$author_title_line
                                      FUN = seq_along))
 remove <- "author_title_line_num"
 txt_words <- txt_words[, !colnames(txt_words) %in% remove]
-
 if (!"txt_rhymes.csv" %in% completed){
     txt_rhymes <- txt_words %>%
         group_by(author_title, line_num) %>%
@@ -240,12 +290,17 @@ if (!"txt_rhymes.csv" %in% completed){
 }else{
     my_url4 <- "https://raw.githubusercontent.com/geedoubledee/data607_project4/main/txt_rhymes.csv"
     txt_rhymes <- read.csv(my_url4)
+    kable(head(txt_rhymes), format = "simple")
 }
 rhymes_summary <- txt_rhymes %>%
     group_by(author_title) %>%
-    summarize(rhyming_score = max(sum(rhymes_1_line_prev), sum(rhymes_2_line_prev)))
+    summarize(rhyming_score = max(sum(rhymes_1_line_prev), sum(rhymes_2_line_prev))) %>%
+    arrange(desc(rhyming_score))
+kable(head(rhymes_summary), format = "simple")
 
 ```
+
+Now that we've created many of the numeric variables that could possibly distinguish a poem from a short story, we create a summary data frame and add one more numeric variable, as well as a few ratios between our numeric variables that could potentially distinguish these texts further: the word count, the words per non-empty lines, the punctuation per non-empty lines, and the rhymes per non-empty lines. 
 
 ```{r create_numeric_summary}
 txt_summary <- txt_words %>%
@@ -261,18 +316,24 @@ remove <- c("emotion_total", "polarity_total", "anger", "anticipation", "disgust
             "fear", "joy", "sadness", "surprise", "trust", "positive", "negative")
 txt_summary <- txt_summary[, !colnames(txt_summary) %in% remove]
 txt_summary <- txt_summary %>%
-    mutate(words_per_non_empty_lines = word_count / total_non_empty_lines) %>%
-    mutate(punct_per_non_empty_lines = total_punct / total_non_empty_lines) %>%
-    mutate(rhymes_per_non_empty_lines = rhyming_score / total_non_empty_lines)
+    mutate(words_per_non_empty_lines = round(word_count / total_non_empty_lines, 2),
+           punct_per_non_empty_lines = round(total_punct / total_non_empty_lines, 2),
+           rhymes_per_non_empty_lines = round(rhyming_score / total_non_empty_lines, 2))
+datatable(head(txt_summary), options = list(scrollX = TRUE))
 
 ```
 
+### Create Train and Test Datasets:
+
+Now we can split our entirely numeric summary data into train and test datasets. Then, we fit a decision tree model. 
+
 ```{r split_train_test_dataset}
-#process adapted from https://www.guru99.com/r-decision-trees.html
+# process for this chunk and the next adapted from
+# https://www.guru99.com/r-decision-trees.html
 split_data_into_test_train <- function(data, size = 0.7, train = TRUE){
     n_row <- nrow(data)
     split_n_row <- size * n_row
-    split <- 1: split_n_row
+    split <- 1:split_n_row
     if (train == TRUE){
         return (data[split, ])
     } else {
@@ -290,11 +351,33 @@ rpart.plot(fit, extra = 106)
 
 ```
 
+We see that the model has only incorporated three of the variables we created into its decision tree: word count, words per non-empty lines, and rhymes per non-empty lines. We'll discuss ways to improve the data that could make our other numeric variables more meaningful to the model later, as word count is so indicative of whether something is a poem or short story that we believe it clouds the influence of other variables. We also know some of our other variables could be measured more accurately as well. First, let's see how the model does at predictive classification.
+
+### Predict Document Class Using Decision Tree:
+
 ```{r predict}
 predict_unseen <- predict(fit, test, type = "class")
 table_mat <- table(test$category, predict_unseen)
 table_mat
-accuracy_Test <- sum(diag(table_mat)) / sum(table_mat)
-print(paste('Accuracy for test', accuracy_Test))
+accuracy_test <- round(sum(diag(table_mat)) / sum(table_mat), 4) * 100
 
 ```
+
+### Assess Accuracy of the Model:
+
+The model correctly labeled 88 poems, but mislabeled 14 of them as short stories. It also correctly labeled 63 short stories, but mislabled 18 of them as poems. 
+
+The model is `r accuracy_test`% accurate. 
+
+### Conclusions:
+
+The model accuracy is great, but we wanted text features other than word count to stand out when predicting poetry vs. short stories. We could probably improve the metrics we developed if:
+
+* the line length of the short stories was fixed like they would be in a physical book, making punctuation per non-empty line more meaningful
+
+* we took text samples that were all within range of the same word count
+
+* we excluded short stories that have poetry or poetic features within them
+
+* we expanded the number of words for which we had emotional/polarity sentiment indicators
+
